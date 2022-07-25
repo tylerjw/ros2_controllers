@@ -16,8 +16,10 @@
 #define JOINT_TRAJECTORY_CONTROLLER__TRAJECTORY_HPP_
 
 #include <memory>
+#include <ruckig/ruckig.hpp>
 #include <vector>
 
+#include "joint_trajectory_controller/interpolation_methods.hpp"
 #include "joint_trajectory_controller/visibility_control.h"
 #include "rclcpp/time.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
@@ -75,13 +77,16 @@ public:
    *    return false
    *
    * \param[in] sample_time Time at which trajectory will be sampled.
+   * \param[in] interpolation_method Specify whether splines, ruckig smoothing, another method, or no interpolation at all.
    * \param[out] expected_state Calculated new at \p sample_time.
    * \param[out] start_segment_itr Iterator to the start segment for given \p sample_time. See description above.
    * \param[out] end_segment_itr Iterator to the end segment for given \p sample_time. See description above.
    */
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool sample(
-    const rclcpp::Time & sample_time, trajectory_msgs::msg::JointTrajectoryPoint & output_state,
+    const rclcpp::Time & sample_time,
+    const interpolation_methods::InterpolationMethod interpolation_method,
+    trajectory_msgs::msg::JointTrajectoryPoint & output_state,
     TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr);
 
   /**
@@ -101,13 +106,15 @@ public:
    * \param[in] time_b Time at which the segment state equals \p state_b.
    * \param[in] state_b State at time \p time_b.
    * \param[in] sample_time The time to sample, between time_a and time_b.
+   * \param[in] do_ruckig_smoothing Optionally apply Ruckig jerk-limited smoothing.
    * \param[out] output The state at \p sample_time.
    */
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
-  void interpolate_between_points(
+  bool interpolate_between_points(
     const rclcpp::Time & time_a, const trajectory_msgs::msg::JointTrajectoryPoint & state_a,
     const rclcpp::Time & time_b, const trajectory_msgs::msg::JointTrajectoryPoint & state_b,
-    const rclcpp::Time & sample_time, trajectory_msgs::msg::JointTrajectoryPoint & output);
+    const rclcpp::Time & sample_time, const bool do_ruckig_smoothing,
+    trajectory_msgs::msg::JointTrajectoryPoint & output);
 
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   TrajectoryPointConstIter begin() const;
@@ -133,6 +140,11 @@ public:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool is_sampled_already() const { return sampled_already_; }
 
+  void reset_ruckig_smoothing()
+  {
+    have_previous_ruckig_output_ = false;
+  }
+
 private:
   void deduce_from_derivatives(
     trajectory_msgs::msg::JointTrajectoryPoint & first_state,
@@ -145,7 +157,17 @@ private:
   rclcpp::Time time_before_traj_msg_;
   trajectory_msgs::msg::JointTrajectoryPoint state_before_traj_msg_;
 
-  bool sampled_already_ = false;
+  bool sampled_already_;
+
+  // For Ruckig jerk-limited smoothing
+  std::unique_ptr<ruckig::Ruckig<ruckig::DynamicDOFs>> smoother_;
+  ruckig::InputParameter<ruckig::DynamicDOFs> ruckig_input_{0};
+  ruckig::OutputParameter<ruckig::DynamicDOFs> ruckig_output_{0};
+  // To avoid instability, Ruckig runs in a closed-loop fashion:
+  // Ruckig output at cycle i is used as the initial state for cycle i+1.
+  // This flag determines whether we need to initialize the state or use the previous
+  // Ruckig output.
+  bool have_previous_ruckig_output_;
 };
 
 /**

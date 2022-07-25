@@ -23,20 +23,36 @@
 #include "std_msgs/msg/header.hpp"
 namespace joint_trajectory_controller
 {
-Trajectory::Trajectory() : trajectory_start_time_(0), time_before_traj_msg_(0) {}
+
+namespace
+{
+// Safe default joint kinematic limits for Ruckig, in case none is defined in the URDF or
+// joint_limits.yaml
+constexpr double DEFAULT_MAX_VELOCITY = 1.5;       // rad/s
+constexpr double DEFAULT_MAX_ACCELERATION = 5.0;  // rad/s^2
+constexpr double DEFAULT_MAX_JERK = 200.0;        // rad/s^3
+}
+
+Trajectory::Trajectory()
+: trajectory_start_time_(0),
+  time_before_traj_msg_(0),
+  sampled_already_(false),
+  have_previous_ruckig_output_(false) {}
 
 Trajectory::Trajectory(std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory)
 : trajectory_msg_(joint_trajectory),
-  trajectory_start_time_(static_cast<rclcpp::Time>(joint_trajectory->header.stamp))
-{
-}
+  trajectory_start_time_(static_cast<rclcpp::Time>(joint_trajectory->header.stamp)),
+  sampled_already_(false),
+  have_previous_ruckig_output_(false) {}
 
 Trajectory::Trajectory(
   const rclcpp::Time & current_time,
   const trajectory_msgs::msg::JointTrajectoryPoint & current_point,
   std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory)
 : trajectory_msg_(joint_trajectory),
-  trajectory_start_time_(static_cast<rclcpp::Time>(joint_trajectory->header.stamp))
+  trajectory_start_time_(static_cast<rclcpp::Time>(joint_trajectory->header.stamp)),
+  sampled_already_(false),
+  have_previous_ruckig_output_(false)
 {
   set_point_before_trajectory_msg(current_time, current_point);
   update(joint_trajectory);
@@ -55,13 +71,26 @@ void Trajectory::update(std::shared_ptr<trajectory_msgs::msg::JointTrajectory> j
   trajectory_msg_ = joint_trajectory;
   trajectory_start_time_ = static_cast<rclcpp::Time>(joint_trajectory->header.stamp);
   sampled_already_ = false;
+
+  // Initialize Ruckig-smoothing-related stuff
+  size_t dim = joint_trajectory->joint_names.size();
+  have_previous_ruckig_output_ = false;
+  ruckig_input_ = ruckig::InputParameter<ruckig::DynamicDOFs>(dim);
+  ruckig_output_ = ruckig::OutputParameter<ruckig::DynamicDOFs>(dim);
+  // TODO(andyz): check if kinematic limits are defined in URDF or joint_limits.yaml
+  ruckig_input_.max_velocity = std::vector<double>(dim, DEFAULT_MAX_VELOCITY);
+  ruckig_input_.max_acceleration = std::vector<double>(dim, DEFAULT_MAX_ACCELERATION);
+  ruckig_input_.max_jerk = std::vector<double>(dim, DEFAULT_MAX_JERK);
 }
 
 bool Trajectory::sample(
-  const rclcpp::Time & sample_time, trajectory_msgs::msg::JointTrajectoryPoint & output_state,
+  const rclcpp::Time & sample_time,
+  const interpolation_methods::InterpolationMethod interpolation_method,
+  trajectory_msgs::msg::JointTrajectoryPoint & output_state,
   TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr)
 {
   THROW_ON_NULLPTR(trajectory_msg_)
+  // TODO(anyone): this shouldn't be initialized at runtime
   output_state = trajectory_msgs::msg::JointTrajectoryPoint();
 
   if (trajectory_msg_->points.empty())
@@ -88,22 +117,31 @@ bool Trajectory::sample(
     return false;
   }
 
-  // current time hasn't reached traj time of the first point in the msg yet
+  auto do_ruckig_smoothing =
+    interpolation_method ==interpolation_methods::InterpolationMethod::RUCKIG;
   auto & first_point_in_msg = trajectory_msg_->points[0];
   const rclcpp::Time first_point_timestamp =
     trajectory_start_time_ + first_point_in_msg.time_from_start;
 
+  // current time hasn't reached traj time of the first point in the msg yet
   if (sample_time < first_point_timestamp)
   {
-    // it changes points only if position and velocity are not exist, but their derivatives
-    deduce_from_derivatives(
-      state_before_traj_msg_, first_point_in_msg, state_before_traj_msg_.positions.size(),
-      (first_point_timestamp - time_before_traj_msg_).seconds());
+    // If interpolation is disabled, just forward the next waypoint
+    if (interpolation_method == interpolation_methods::InterpolationMethod::NONE)
+    {
+      output_state = state_before_traj_msg_;
+    }
+    else
+    {
+      // it changes points only if position and velocity do not exist, but their derivatives
+      deduce_from_derivatives(
+        state_before_traj_msg_, first_point_in_msg, state_before_traj_msg_.positions.size(),
+        (first_point_timestamp - time_before_traj_msg_).seconds());
 
-    interpolate_between_points(
-      time_before_traj_msg_, state_before_traj_msg_, first_point_timestamp, first_point_in_msg,
-      sample_time, output_state);
-
+      interpolate_between_points(
+        time_before_traj_msg_, state_before_traj_msg_, first_point_timestamp, first_point_in_msg,
+        sample_time, do_ruckig_smoothing, output_state);
+    }
     start_segment_itr = begin();  // no segments before the first
     end_segment_itr = begin();
     return true;
@@ -121,12 +159,24 @@ bool Trajectory::sample(
 
     if (sample_time >= t0 && sample_time < t1)
     {
-      // it changes points only if position and velocity are not exist, but their derivatives
-      deduce_from_derivatives(
-        point, next_point, state_before_traj_msg_.positions.size(), (t1 - t0).seconds());
+      // If interpolation is disabled, just forward the next waypoint
+      if (interpolation_method == interpolation_methods::InterpolationMethod::NONE)
+      {
+        output_state = next_point;
+      }
+      // Do interpolation
+      else
+      {
+        // it changes points only if position and velocity are not exist, but their derivatives
+        deduce_from_derivatives(
+          point, next_point, state_before_traj_msg_.positions.size(), (t1 - t0).seconds());
 
-      interpolate_between_points(t0, point, t1, next_point, sample_time, output_state);
-
+        if (!interpolate_between_points(
+          t0, point, t1, next_point, sample_time, do_ruckig_smoothing, output_state))
+        {
+          return false;
+        }
+      }
       start_segment_itr = begin() + i;
       end_segment_itr = begin() + (i + 1);
       return true;
@@ -149,14 +199,16 @@ bool Trajectory::sample(
   return true;
 }
 
-void Trajectory::interpolate_between_points(
+bool Trajectory::interpolate_between_points(
   const rclcpp::Time & time_a, const trajectory_msgs::msg::JointTrajectoryPoint & state_a,
   const rclcpp::Time & time_b, const trajectory_msgs::msg::JointTrajectoryPoint & state_b,
-  const rclcpp::Time & sample_time, trajectory_msgs::msg::JointTrajectoryPoint & output)
+  const rclcpp::Time & sample_time, const bool do_ruckig_smoothing,
+  trajectory_msgs::msg::JointTrajectoryPoint & output)
 {
   rclcpp::Duration duration_so_far = sample_time - time_a;
   rclcpp::Duration duration_btwn_points = time_b - time_a;
 
+  // TODO(anyone): this shouldn't be resized at runtime
   const size_t dim = state_a.positions.size();
   output.positions.resize(dim, 0.0);
   output.velocities.resize(dim, 0.0);
@@ -278,6 +330,78 @@ void Trajectory::interpolate_between_points(
                                 t[2] * 12.0 * coefficients[4] + t[3] * 20.0 * coefficients[5];
     }
   }
+
+  // Optionally apply velocity, acceleration, and jerk limits with Ruckig
+  if ((duration_so_far.seconds() > 0) && do_ruckig_smoothing)
+  {
+    // Create a duration variable that tracks the elapsed time at the previous function call
+    static rclcpp::Duration duration_so_far_prev_timestep = rclcpp::Duration{0, 0};
+    // Have a check to make sure that the duration at the previous timestep is
+    // always smaller than the current timestep
+        if (duration_so_far.seconds() < duration_so_far_prev_timestep.seconds()) {
+      duration_so_far_prev_timestep = rclcpp::Duration{0, 0};
+    }
+    // If Ruckig has run previously on this trajectory, use the output as input for the next cycle
+    if (have_previous_ruckig_output_)
+    {
+      ruckig_input_.current_position = ruckig_output_.new_position;
+      ruckig_input_.current_velocity = ruckig_output_.new_velocity;
+      ruckig_input_.current_acceleration = ruckig_output_.new_acceleration;
+    }
+    // else, need to initialize the robot state
+    else
+    {
+      ruckig_input_.current_position = state_a.positions;
+      if (has_velocity)
+      {
+        ruckig_input_.current_velocity = state_a.velocities;
+      }
+      else
+      {
+        ruckig_input_.current_velocity = std::vector<double>(dim, 0);
+      }
+      if (has_accel)
+      {
+        ruckig_input_.current_acceleration = state_a.accelerations;
+      }
+      else
+      {
+        ruckig_input_.current_acceleration = std::vector<double>(dim, 0);
+      }
+    }
+    // Target state comes from the polynomial interpolation
+    ruckig_input_.target_position = output.positions;
+    ruckig_input_.target_velocity = output.velocities;
+    ruckig_input_.target_acceleration = output.accelerations;
+
+    // TODO(andyz): update only the Ruckig::delta_time member of the smoother.
+    // dim should not update since it doesn't change with every new trajectory
+    // See https://github.com/pantor/ruckig/issues/118
+    // Current assumption is that the next update time is equivalent to the duration
+    // from the last timestep to the current timestep
+    smoother_ = std::make_unique<ruckig::Ruckig<ruckig::DynamicDOFs>>(dim,
+      duration_so_far.seconds() - duration_so_far_prev_timestep.seconds());
+    ruckig::Result result = smoother_->update(ruckig_input_, ruckig_output_);
+
+    // Time elapsed for the previous call is now the time elapsed at the current call
+    duration_so_far_prev_timestep = duration_so_far;
+
+    // If Ruckig was successful, update the output state
+    // Else, just pass the output from the polynomial interpolation
+    if (result == ruckig::Result::Working || result == ruckig::Result::Finished)
+    {
+      have_previous_ruckig_output_ = true;
+      output.positions = ruckig_output_.new_position;
+      output.velocities = ruckig_output_.new_velocity;
+      output.accelerations = ruckig_output_.new_acceleration;
+    }
+    else
+    {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void Trajectory::deduce_from_derivatives(
