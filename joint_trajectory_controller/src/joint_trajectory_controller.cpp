@@ -29,6 +29,7 @@
 #include "controller_interface/helpers.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "joint_limits/joint_limits_rosparam.hpp"
 #include "joint_trajectory_controller/trajectory.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 #include "rclcpp/logging.hpp"
@@ -163,7 +164,7 @@ controller_interface::return_type JointTrajectoryController::update(
     fill_partial_goal(*new_external_msg);
     sort_to_local_joint_order(*new_external_msg);
     // TODO(denis): Add here integration of position and velocity
-    traj_external_point_ptr_->update(*new_external_msg);
+    traj_external_point_ptr_->update(*new_external_msg, joint_limits_);
   }
 
   // TODO(anyone): can I here also use const on joint_interface since the reference_wrapper is not
@@ -188,6 +189,7 @@ controller_interface::return_type JointTrajectoryController::update(
     if (!(*traj_point_active_ptr_)->is_sampled_already())
     {
       first_sample = true;
+
       // Reset Ruckig vel/accel/jerk smoothing
       (*traj_point_active_ptr_)->reset_ruckig_smoothing();
 
@@ -621,6 +623,15 @@ controller_interface::CallbackReturn JointTrajectoryController::on_configure(
     }
   }
 
+  joint_limits_.resize(dof_);
+  for (size_t i = 0; i < joint_limits_.size(); ++i)
+  {
+    if (joint_limits::declare_parameters(joint_names_[i], get_node()))
+    {
+      joint_limits::get_joint_limits(joint_names_[i], get_node(), joint_limits_[i]);
+    }
+  }
+
   // Read always state interfaces from the parameter because they can be used
   // independently from the controller's type.
   // Specialized, child controllers should set its default value.
@@ -935,7 +946,7 @@ controller_interface::CallbackReturn JointTrajectoryController::on_cleanup(
   const rclcpp_lifecycle::State &)
 {
   // go home
-  traj_home_point_ptr_->update(traj_msg_home_ptr_);
+  traj_home_point_ptr_->update(traj_msg_home_ptr_, joint_limits_);
   traj_point_active_ptr_ = &traj_home_point_ptr_;
 
   return CallbackReturn::SUCCESS;

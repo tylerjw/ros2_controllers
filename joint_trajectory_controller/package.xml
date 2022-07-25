@@ -23,6 +23,7 @@
   <depend>control_msgs</depend>
   <depend>control_toolbox</depend>
   <depend>hardware_interface</depend>
+  <depend>joint_limits</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>ruckig</depend>

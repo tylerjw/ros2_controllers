@@ -21,6 +21,7 @@
 #include "rclcpp/time.hpp"
 #include "rcppmath/clamp.hpp"
 #include "std_msgs/msg/header.hpp"
+
 namespace joint_trajectory_controller
 {
 
@@ -55,7 +56,7 @@ Trajectory::Trajectory(
   have_previous_ruckig_output_(false)
 {
   set_point_before_trajectory_msg(current_time, current_point);
-  update(joint_trajectory);
+  //   update(joint_trajectory);
 }
 
 void Trajectory::set_point_before_trajectory_msg(
@@ -66,7 +67,9 @@ void Trajectory::set_point_before_trajectory_msg(
   state_before_traj_msg_ = current_point;
 }
 
-void Trajectory::update(std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory)
+void Trajectory::update(
+  std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory,
+  const std::vector<joint_limits::JointLimits> & joint_limits)
 {
   trajectory_msg_ = joint_trajectory;
   trajectory_start_time_ = static_cast<rclcpp::Time>(joint_trajectory->header.stamp);
@@ -77,10 +80,34 @@ void Trajectory::update(std::shared_ptr<trajectory_msgs::msg::JointTrajectory> j
   have_previous_ruckig_output_ = false;
   ruckig_input_ = ruckig::InputParameter<ruckig::DynamicDOFs>(dim);
   ruckig_output_ = ruckig::OutputParameter<ruckig::DynamicDOFs>(dim);
-  // TODO(andyz): check if kinematic limits are defined in URDF or joint_limits.yaml
-  ruckig_input_.max_velocity = std::vector<double>(dim, DEFAULT_MAX_VELOCITY);
-  ruckig_input_.max_acceleration = std::vector<double>(dim, DEFAULT_MAX_ACCELERATION);
-  ruckig_input_.max_jerk = std::vector<double>(dim, DEFAULT_MAX_JERK);
+
+  for (size_t i = 0; i < dim; ++i)
+  {
+    if (joint_limits[i].has_velocity_limits)
+    {
+      ruckig_input_.max_velocity[i] = joint_limits[i].max_velocity;
+    }
+    else
+    {
+      ruckig_input_.max_velocity[i] = DEFAULT_MAX_VELOCITY;
+    }
+    if (joint_limits[i].has_acceleration_limits)
+    {
+      ruckig_input_.max_acceleration[i] = joint_limits[i].max_acceleration;
+    }
+    else
+    {
+      ruckig_input_.max_acceleration[i] = DEFAULT_MAX_ACCELERATION;
+    }
+    if (joint_limits[i].has_jerk_limits)
+    {
+      ruckig_input_.max_jerk[i] = joint_limits[i].max_jerk;
+    }
+    else
+    {
+      ruckig_input_.max_velocity[i] = DEFAULT_MAX_JERK;
+    }
+  }
 }
 
 bool Trajectory::sample(

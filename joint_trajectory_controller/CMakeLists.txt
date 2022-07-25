@@ -17,6 +17,7 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
     control_msgs
     control_toolbox
     hardware_interface
+    joint_limits
     pluginlib
     rclcpp
     rclcpp_lifecycle

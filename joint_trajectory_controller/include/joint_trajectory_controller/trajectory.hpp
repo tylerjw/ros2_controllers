@@ -16,14 +16,16 @@
 #define JOINT_TRAJECTORY_CONTROLLER__TRAJECTORY_HPP_
 
 #include <memory>
-#include <ruckig/ruckig.hpp>
 #include <vector>
 
+#include "joint_limits/joint_limits.hpp"
 #include "joint_trajectory_controller/interpolation_methods.hpp"
 #include "joint_trajectory_controller/visibility_control.h"
 #include "rclcpp/time.hpp"
+#include "ruckig/ruckig.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "trajectory_msgs/msg/joint_trajectory_point.hpp"
+
 namespace joint_trajectory_controller
 {
 using TrajectoryPointIter = std::vector<trajectory_msgs::msg::JointTrajectoryPoint>::iterator;
@@ -55,7 +57,9 @@ public:
     const trajectory_msgs::msg::JointTrajectoryPoint & current_point);
 
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
-  void update(std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory);
+  void update(
+    std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory,
+    const std::vector<joint_limits::JointLimits> & joint_limits);
 
   /// Find the segment (made up of 2 points) and its expected state from the
   /// containing trajectory.
@@ -140,10 +144,7 @@ public:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool is_sampled_already() const { return sampled_already_; }
 
-  void reset_ruckig_smoothing()
-  {
-    have_previous_ruckig_output_ = false;
-  }
+  void reset_ruckig_smoothing() { have_previous_ruckig_output_ = false; }
 
 private:
   void deduce_from_derivatives(
