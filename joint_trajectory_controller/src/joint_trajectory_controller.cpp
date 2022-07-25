@@ -71,7 +71,7 @@ controller_interface::CallbackReturn JointTrajectoryController::on_init()
     state_publish_rate_ = auto_declare<double>("state_publish_rate", 50.0);
     action_monitor_rate_ = auto_declare<double>("action_monitor_rate", 20.0);
 
-    std::string interpolation_string = auto_declare<std::string>(
+    const std::string interpolation_string = auto_declare<std::string>(
       "interpolation_method", interpolation_methods::InterpolationMethodMap.at(
                                 interpolation_methods::DEFAULT_INTERPOLATION));
     interpolation_method_ = interpolation_methods::from_string(interpolation_string);
@@ -737,7 +737,8 @@ controller_interface::CallbackReturn JointTrajectoryController::on_configure(
   allow_integration_in_goal_trajectories_ =
     get_node()->get_parameter("allow_integration_in_goal_trajectories").get_value<bool>();
 
-  std::string interpolation_string = get_node()->get_parameter("interpolation_method").as_string();
+  const std::string interpolation_string =
+    get_node()->get_parameter("interpolation_method").as_string();
   interpolation_method_ = interpolation_methods::from_string(interpolation_string);
   RCLCPP_INFO(
     logger, "Using '%s' interpolation method.",
@@ -769,6 +770,7 @@ controller_interface::CallbackReturn JointTrajectoryController::on_configure(
   // joint_command_subscriber_->on_activate();
 
   // State publisher
+  state_publish_rate_ = get_node()->get_parameter("state_publish_rate").get_value<double>();
   RCLCPP_INFO(logger, "Controller state will be published at %.2f Hz.", state_publish_rate_);
   if (state_publish_rate_ > 0.0)
   {
@@ -812,6 +814,7 @@ controller_interface::CallbackReturn JointTrajectoryController::on_configure(
     RCLCPP_INFO(logger, "Goals with partial set of joints are allowed");
   }
 
+  action_monitor_rate_ = get_node()->get_parameter("action_monitor_rate").get_value<double>();
   RCLCPP_INFO(logger, "Action status changes will be monitored at %.2f Hz.", action_monitor_rate_);
   action_monitor_period_ = rclcpp::Duration::from_seconds(1.0 / action_monitor_rate_);
 
