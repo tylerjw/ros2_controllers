@@ -88,7 +88,7 @@ class PublisherJointTrajectory(Node):
 
                 point = JointTrajectoryPoint()
                 point.positions = float_goal
-                point.time_from_start = Duration(sec=4)
+                point.time_from_start = Duration(sec=6)
 
                 self.goals.append(point)
 
@@ -133,7 +133,7 @@ class PublisherJointTrajectory(Node):
                     one_ok = True
 
                 if one_ok:
-                    point.time_from_start = Duration(sec=4)
+                    point.time_from_start = Duration(sec=6)
                     self.goals.append(point)
                     self.get_logger().info(f'Goal "{name}" has definition {point}')
 

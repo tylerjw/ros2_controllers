@@ -91,7 +91,9 @@ public:
     const rclcpp::Time & sample_time,
     const interpolation_methods::InterpolationMethod interpolation_method,
     trajectory_msgs::msg::JointTrajectoryPoint & output_state,
-    TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr);
+    TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr,
+    const rclcpp::Duration & period,
+    const std::vector<joint_limits::JointLimits> & joint_limits);
 
   /**
    * Do interpolation between 2 states given a time in between their respective timestamps
@@ -118,7 +120,9 @@ public:
     const rclcpp::Time & time_a, const trajectory_msgs::msg::JointTrajectoryPoint & state_a,
     const rclcpp::Time & time_b, const trajectory_msgs::msg::JointTrajectoryPoint & state_b,
     const rclcpp::Time & sample_time, const bool do_ruckig_smoothing,
-    trajectory_msgs::msg::JointTrajectoryPoint & output);
+    trajectory_msgs::msg::JointTrajectoryPoint & output,
+    const rclcpp::Duration & period,
+    const std::vector<joint_limits::JointLimits> & joint_limits);
 
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   TrajectoryPointConstIter begin() const;

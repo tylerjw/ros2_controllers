@@ -207,7 +207,7 @@ controller_interface::return_type JointTrajectoryController::update(
     TrajectoryPointConstIter start_segment_itr, end_segment_itr;
     const bool valid_point =
       (*traj_point_active_ptr_)
-        ->sample(time, interpolation_method_, state_desired_, start_segment_itr, end_segment_itr);
+        ->sample(time, interpolation_method_, state_desired_, start_segment_itr, end_segment_itr, period, joint_limits_);
 
     if (!valid_point)
     {
