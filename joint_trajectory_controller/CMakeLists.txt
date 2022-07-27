@@ -60,33 +60,33 @@ if(BUILD_TESTING)
   find_package(controller_manager REQUIRED)
   find_package(ros2_control_test_assets REQUIRED)
 
-  ament_add_gmock(test_trajectory test/test_trajectory.cpp)
-  target_include_directories(test_trajectory PRIVATE include)
-  target_link_libraries(test_trajectory ${PROJECT_NAME})
+  #ament_add_gmock(test_trajectory test/test_trajectory.cpp)
+  #target_include_directories(test_trajectory PRIVATE include)
+  #target_link_libraries(test_trajectory ${PROJECT_NAME})
 
-  ament_add_gmock(test_trajectory_controller
-    test/test_trajectory_controller.cpp
-    ENV config_file=${CMAKE_CURRENT_SOURCE_DIR}/test/config/test_joint_trajectory_controller.yaml)
-  set_tests_properties(test_trajectory_controller PROPERTIES TIMEOUT 220)
-  target_include_directories(test_trajectory_controller PRIVATE include)
-  target_link_libraries(test_trajectory_controller
-    ${PROJECT_NAME}
-  )
-  ament_target_dependencies(test_trajectory_controller
-    ${THIS_PACKAGE_INCLUDE_DEPENDS}
-  )
+  #ament_add_gmock(test_trajectory_controller
+    #test/test_trajectory_controller.cpp
+    #ENV config_file=${CMAKE_CURRENT_SOURCE_DIR}/test/config/test_joint_trajectory_controller.yaml)
+  #set_tests_properties(test_trajectory_controller PROPERTIES TIMEOUT 220)
+  #target_include_directories(test_trajectory_controller PRIVATE include)
+  #target_link_libraries(test_trajectory_controller
+    #${PROJECT_NAME}
+  #)
+  #ament_target_dependencies(test_trajectory_controller
+    #${THIS_PACKAGE_INCLUDE_DEPENDS}
+  #)
 
-  ament_add_gmock(
-    test_load_joint_trajectory_controller
-    test/test_load_joint_trajectory_controller.cpp
-  )
-  target_include_directories(test_load_joint_trajectory_controller PRIVATE include)
-  ament_target_dependencies(test_load_joint_trajectory_controller
-    controller_manager
-    control_toolbox
-    realtime_tools
-    ros2_control_test_assets
-  )
+  #ament_add_gmock(
+    #test_load_joint_trajectory_controller
+    #test/test_load_joint_trajectory_controller.cpp
+  #)
+  #target_include_directories(test_load_joint_trajectory_controller PRIVATE include)
+  #ament_target_dependencies(test_load_joint_trajectory_controller
+    #controller_manager
+    #control_toolbox
+    #realtime_tools
+    #ros2_control_test_assets
+  #)
 
   # TODO(andyz): Disabled due to flakiness
   # ament_add_gmock(
