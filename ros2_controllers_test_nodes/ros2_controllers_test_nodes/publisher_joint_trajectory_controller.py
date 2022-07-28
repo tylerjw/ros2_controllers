@@ -88,7 +88,7 @@ class PublisherJointTrajectory(Node):
 
                 point = JointTrajectoryPoint()
                 point.positions = float_goal
-                point.time_from_start = Duration(sec=6)
+                point.time_from_start = Duration(sec=4)
 
                 self.goals.append(point)
 
@@ -133,7 +133,7 @@ class PublisherJointTrajectory(Node):
                     one_ok = True
 
                 if one_ok:
-                    point.time_from_start = Duration(sec=6)
+                    point.time_from_start = Duration(sec=4)
                     self.goals.append(point)
                     self.get_logger().info(f'Goal "{name}" has definition {point}')
 
@@ -154,7 +154,7 @@ class PublisherJointTrajectory(Node):
 
         self.get_logger().info(
             f'Publishing {len(goal_names)} goals on topic "{publish_topic}" every '
-            '{wait_sec_between_publish} s')
+            f'{wait_sec_between_publish} s')
 
         self.publisher_ = self.create_publisher(JointTrajectory, publish_topic, 1)
         self.timer = self.create_timer(wait_sec_between_publish, self.timer_callback)

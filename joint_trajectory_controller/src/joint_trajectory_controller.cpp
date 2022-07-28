@@ -191,7 +191,7 @@ controller_interface::return_type JointTrajectoryController::update(
       first_sample = true;
 
       // Reset Ruckig vel/accel/jerk smoothing
-      (*traj_point_active_ptr_)->reset_ruckig_smoothing();
+//       (*traj_point_active_ptr_)->reset_ruckig_smoothing();
 
       if (open_loop_control_)
       {
