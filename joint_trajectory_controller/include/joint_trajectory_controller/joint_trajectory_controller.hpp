@@ -131,6 +131,9 @@ protected:
   trajectory_msgs::msg::JointTrajectoryPoint state_current_;
   trajectory_msgs::msg::JointTrajectoryPoint state_desired_;
   trajectory_msgs::msg::JointTrajectoryPoint state_error_;
+  trajectory_msgs::msg::JointTrajectoryPoint splines_state_;
+  trajectory_msgs::msg::JointTrajectoryPoint ruckig_state_;
+  trajectory_msgs::msg::JointTrajectoryPoint ruckig_input_state_;
 
   // Degrees of freedom
   size_t dof_;
@@ -193,6 +196,12 @@ protected:
   using StatePublisherPtr = std::unique_ptr<StatePublisher>;
   rclcpp::Publisher<ControllerStateMsg>::SharedPtr publisher_;
   StatePublisherPtr state_publisher_;
+  rclcpp::Publisher<ControllerStateMsg>::SharedPtr splines_output_pub_;
+  StatePublisherPtr splines_output_publisher_;
+  rclcpp::Publisher<ControllerStateMsg>::SharedPtr ruckig_input_pub_;
+  StatePublisherPtr ruckig_input_publisher_;
+  rclcpp::Publisher<ControllerStateMsg>::SharedPtr ruckig_input_target_pub_;
+  StatePublisherPtr ruckig_input_target_publisher_;
 
   rclcpp::Duration state_publisher_period_ = rclcpp::Duration(20ms);
   rclcpp::Time last_state_publish_time_;
@@ -255,7 +264,8 @@ protected:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   void publish_state(
     const JointTrajectoryPoint & desired_state, const JointTrajectoryPoint & current_state,
-    const JointTrajectoryPoint & state_error);
+    const JointTrajectoryPoint & state_error, const JointTrajectoryPoint & splines_output,
+    const JointTrajectoryPoint & ruckig_input_target, const JointTrajectoryPoint & ruckig_input);
 
   void read_state_from_hardware(JointTrajectoryPoint & state);
 

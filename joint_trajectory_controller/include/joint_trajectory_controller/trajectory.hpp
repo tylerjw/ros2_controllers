@@ -59,7 +59,7 @@ public:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   void update(
     std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory,
-    const std::vector<joint_limits::JointLimits> & joint_limits);
+    const std::vector<joint_limits::JointLimits> & joint_limits, const rclcpp::Duration & period);
 
   /// Find the segment (made up of 2 points) and its expected state from the
   /// containing trajectory.
@@ -92,8 +92,10 @@ public:
     const interpolation_methods::InterpolationMethod interpolation_method,
     trajectory_msgs::msg::JointTrajectoryPoint & output_state,
     TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr,
-    const rclcpp::Duration & period,
-    const std::vector<joint_limits::JointLimits> & joint_limits);
+    const rclcpp::Duration & period, const std::vector<joint_limits::JointLimits> & joint_limits,
+    trajectory_msgs::msg::JointTrajectoryPoint & splines_state,
+    trajectory_msgs::msg::JointTrajectoryPoint & ruckig_state,
+    trajectory_msgs::msg::JointTrajectoryPoint & ruckig_input_state);
 
   /**
    * Do interpolation between 2 states given a time in between their respective timestamps
@@ -120,9 +122,11 @@ public:
     const rclcpp::Time & time_a, const trajectory_msgs::msg::JointTrajectoryPoint & state_a,
     const rclcpp::Time & time_b, const trajectory_msgs::msg::JointTrajectoryPoint & state_b,
     const rclcpp::Time & sample_time, const bool do_ruckig_smoothing, const bool skip_splines,
-    trajectory_msgs::msg::JointTrajectoryPoint & output,
-    const rclcpp::Duration & period,
-    const std::vector<joint_limits::JointLimits> & joint_limits);
+    trajectory_msgs::msg::JointTrajectoryPoint & output, const rclcpp::Duration & period,
+    const std::vector<joint_limits::JointLimits> & joint_limits,
+    trajectory_msgs::msg::JointTrajectoryPoint & splines_state,
+    trajectory_msgs::msg::JointTrajectoryPoint & ruckig_state,
+    trajectory_msgs::msg::JointTrajectoryPoint & ruckig_input_state);
 
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   TrajectoryPointConstIter begin() const;
@@ -148,7 +152,7 @@ public:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool is_sampled_already() const { return sampled_already_; }
 
-//   void reset_ruckig_smoothing() { have_previous_ruckig_output_ = false; }
+  //   void reset_ruckig_smoothing() { have_previous_ruckig_output_ = false; }
 
 private:
   void deduce_from_derivatives(
@@ -172,7 +176,7 @@ private:
   // Ruckig output at cycle i is used as the initial state for cycle i+1.
   // This flag determines whether we need to initialize the state or use the previous
   // Ruckig output.
-  bool have_previous_ruckig_output_;
+  bool have_previous_ruckig_output_ = false;
 };
 
 /**

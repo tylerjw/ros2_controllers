@@ -50,7 +50,7 @@ TEST(TestTrajectory, initialize_trajectory)
 
     trajectory_msgs::msg::JointTrajectoryPoint output_point;
     joint_trajectory_controller::TrajectoryPointConstIter start, end;
-    traj.sample(rclcpp::Clock().now(), DEFAULT_INTERPOLATION, output_point, start, end);
+    traj.sample(rclcpp::Clock().now(), DEFAULT_INTERPOLATION, output_point, start, end, );
 
     EXPECT_EQ(traj.end(), start);
     EXPECT_EQ(traj.end(), end);
@@ -185,8 +185,8 @@ TEST(TestTrajectory, sample_trajectory_positions)
   // sample past given points
   {
     traj.sample(
-      time_now + rclcpp::Duration::from_seconds(3.125), DEFAULT_INTERPOLATION, output_point,
-      start, end);
+      time_now + rclcpp::Duration::from_seconds(3.125), DEFAULT_INTERPOLATION, output_point, start,
+      end);
     ASSERT_EQ((--traj.end()), start);
     ASSERT_EQ(traj.end(), end);
     EXPECT_NEAR(p3.positions[0], output_point.positions[0], EPS);

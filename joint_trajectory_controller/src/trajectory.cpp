@@ -73,9 +73,9 @@ void Trajectory::set_point_before_trajectory_msg(
 
 void Trajectory::update(
   std::shared_ptr<trajectory_msgs::msg::JointTrajectory> joint_trajectory,
-  const std::vector<joint_limits::JointLimits> & joint_limits)
+  const std::vector<joint_limits::JointLimits> & joint_limits, const rclcpp::Duration & period)
 {
-  RCLCPP_INFO(rclcpp::get_logger("trajectory"), "resetting trajectory");
+  //   RCLCPP_INFO(rclcpp::get_logger("trajectory"), "resetting trajectory");
 
   trajectory_msg_ = joint_trajectory;
   trajectory_start_time_ = static_cast<rclcpp::Time>(joint_trajectory->header.stamp);
@@ -83,9 +83,13 @@ void Trajectory::update(
 
   // Initialize Ruckig-smoothing-related stuff
   size_t dofs = joint_trajectory->joint_names.size();
-  have_previous_ruckig_output_ = false;
+  // TODO(andyz): update only the Ruckig::delta_time member of the smoother.
+  // dofs should not update since it doesn't change with every new trajectory
+  // See https://github.com/pantor/ruckig/issues/118
+  smoother_ = std::make_unique<ruckig::Ruckig<ruckig::DynamicDOFs>>(dofs, period.seconds());
   ruckig_input_ = ruckig::InputParameter<ruckig::DynamicDOFs>(dofs);
   ruckig_output_ = ruckig::OutputParameter<ruckig::DynamicDOFs>(dofs);
+  have_previous_ruckig_output_ = false;
 
   ruckig_input_.max_velocity.clear();
   ruckig_input_.max_velocity.resize(dofs, DEFAULT_MAX_VELOCITY);
@@ -134,7 +138,10 @@ bool Trajectory::sample(
   const interpolation_methods::InterpolationMethod interpolation_method,
   trajectory_msgs::msg::JointTrajectoryPoint & output_state,
   TrajectoryPointConstIter & start_segment_itr, TrajectoryPointConstIter & end_segment_itr,
-  const rclcpp::Duration & period, const std::vector<joint_limits::JointLimits> & joint_limits)
+  const rclcpp::Duration & period, const std::vector<joint_limits::JointLimits> & joint_limits,
+  trajectory_msgs::msg::JointTrajectoryPoint & splines_state,
+  trajectory_msgs::msg::JointTrajectoryPoint & ruckig_state,
+  trajectory_msgs::msg::JointTrajectoryPoint & ruckig_input_state)
 {
   THROW_ON_NULLPTR(trajectory_msg_)
 
@@ -203,7 +210,6 @@ bool Trajectory::sample(
       //         first_point_in_msg.velocities[dof_i] = first_point_in_msg.velocities[dof_i] / max_vel_ratio;
       //       }
 
-
       // it changes points only if position and velocity do not exist, but their derivatives
       deduce_from_derivatives(
         state_before_traj_msg_, first_point_in_msg, state_before_traj_msg_.positions.size(),
@@ -211,7 +217,8 @@ bool Trajectory::sample(
 
       interpolate_between_points(
         time_before_traj_msg_, state_before_traj_msg_, first_point_timestamp, first_point_in_msg,
-        sample_time, do_ruckig_smoothing, false, output_state, period, joint_limits);
+        sample_time, do_ruckig_smoothing, false, output_state, period, joint_limits, splines_state,
+        ruckig_state, ruckig_input_state);
     }
     start_segment_itr = begin();  // no segments before the first
     end_segment_itr = begin();
@@ -264,12 +271,11 @@ bool Trajectory::sample(
         //         }
 
         // it changes points only if position and velocity do not exist, but their derivatives
-        deduce_from_derivatives(
-          point, next_point, state_before_traj_msg_.positions.size(), (t1 - t0).seconds());
+        deduce_from_derivatives(point, next_point, point.positions.size(), (t1 - t0).seconds());
 
         if (!interpolate_between_points(
-              t0, point, t1, next_point, sample_time, do_ruckig_smoothing, false, output_state, period,
-              joint_limits))
+              t0, point, t1, next_point, sample_time, do_ruckig_smoothing, false, output_state,
+              period, joint_limits, splines_state, ruckig_state, ruckig_input_state))
         {
           return false;
         }
@@ -313,43 +319,14 @@ bool Trajectory::sample(
 
   // do not do splines when trajectory has finished because the time is achieved
   if (!interpolate_between_points(
-    t0, last_point, t0, last_point, sample_time, do_ruckig_smoothing, true, output_state, period,
-    joint_limits))
+        t0, last_point, t0, last_point, sample_time, do_ruckig_smoothing, true, output_state,
+        period, joint_limits, splines_state, ruckig_state, ruckig_input_state))
   {
     return false;
   }
 
   start_segment_itr = --end();
   end_segment_itr = end();
-
-//   const size_t dofs = last_point_itr.positions.size();
-//
-//   // the trajectories in msg may have empty velocities/accel, so resize them
-//   if (last_point_itr.velocities.empty())
-//   {
-//     last_point_itr.velocities.resize(dofs, 0.0);
-//   }
-//   if (last_point_itr.accelerations.empty())
-//   {
-//     last_point_itr.accelerations.resize(dofs, 0.0);
-//   }
-//
-//   // integrate velocities and positions because acc and vel don't have to be 0 between points
-//   for (size_t dof_i = 0; dof_i < dofs; ++dof_i)
-//   {
-//     if (last_point_itr.accelerations[dof_i] != 0)
-//     {
-//       last_point_itr.velocities[dof_i] += last_point_itr.accelerations[dof_i] * period.seconds();
-//       // remember velocity over multiple calls
-//     }
-//     if (last_point_itr.velocities[dof_i] != 0)
-//     {
-//       last_point_itr.positions[dof_i] += last_point_itr.velocities[dof_i] * period.seconds();
-//       // remember velocity over multiple calls
-//     }
-//   }
-//
-//   output_state = last_point;
 
   return true;
 }
@@ -359,8 +336,13 @@ bool Trajectory::interpolate_between_points(
   const rclcpp::Time & time_b, const trajectory_msgs::msg::JointTrajectoryPoint & state_b,
   const rclcpp::Time & sample_time, const bool do_ruckig_smoothing, const bool skip_splines,
   trajectory_msgs::msg::JointTrajectoryPoint & output, const rclcpp::Duration & period,
-  const std::vector<joint_limits::JointLimits> & joint_limits)
+  const std::vector<joint_limits::JointLimits> & joint_limits,
+  trajectory_msgs::msg::JointTrajectoryPoint & splines_state,
+  trajectory_msgs::msg::JointTrajectoryPoint & ruckig_state,
+  trajectory_msgs::msg::JointTrajectoryPoint & ruckig_input_state)
 {
+  //   RCLCPP_WARN(rclcpp::get_logger("trajectory"), "New iteration");
+
   rclcpp::Duration duration_so_far = sample_time - time_a;
   rclcpp::Duration duration_btwn_points = time_b - time_a;
 
@@ -372,6 +354,19 @@ bool Trajectory::interpolate_between_points(
   output.positions.resize(dofs, 0.0);
   output.velocities.resize(dofs, 0.0);
   output.accelerations.resize(dofs, 0.0);
+
+  splines_state.positions.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  splines_state.velocities.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  splines_state.accelerations.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  splines_state.effort.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_state.positions.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_state.velocities.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_state.accelerations.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_state.effort.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_input_state.positions.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_input_state.velocities.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_input_state.accelerations.resize(dofs, std::numeric_limits<double>::quiet_NaN());
+  ruckig_input_state.effort.resize(dofs, std::numeric_limits<double>::quiet_NaN());
 
   if (!skip_splines)
   {
@@ -387,12 +382,18 @@ bool Trajectory::interpolate_between_points(
     {
       duration_so_far = rclcpp::Duration::from_seconds(0.0);
       has_velocity = has_accel = false;
+      RCLCPP_WARN(rclcpp::get_logger("trajectory"), "Duration so far is negative");
     }
     if (duration_so_far.seconds() > duration_btwn_points.seconds())
     {
+      RCLCPP_WARN(
+        rclcpp::get_logger("trajectory"),
+        "Duration so far is smaller then duration between points");
       duration_so_far = duration_btwn_points;
       has_velocity = has_accel = false;
     }
+
+    output.effort = state_b.positions;
 
     double t[6];
     generate_powers(5, duration_so_far.seconds(), t);
@@ -471,11 +472,12 @@ bool Trajectory::interpolate_between_points(
           coefficients[3] = (-20.0 * start_pos + 20.0 * end_pos - 3.0 * start_acc * T[2] +
                              end_acc * T[2] - 12.0 * start_vel * T[1] - 8.0 * end_vel * T[1]) /
                             (2.0 * T[3]);
-          coefficients[4] = (30.0 * start_pos - 30.0 * end_pos + 3.0 * start_acc * T[2] -
-                             2.0 * end_acc * T[2] + 16.0 * start_vel * T[1] + 14.0 * end_vel * T[1]) /
-                            (2.0 * T[4]);
-          coefficients[5] = (-12.0 * start_pos + 12.0 * end_pos - start_acc * T[2] + end_acc * T[2] -
-                             6.0 * start_vel * T[1] - 6.0 * end_vel * T[1]) /
+          coefficients[4] =
+            (30.0 * start_pos - 30.0 * end_pos + 3.0 * start_acc * T[2] - 2.0 * end_acc * T[2] +
+             16.0 * start_vel * T[1] + 14.0 * end_vel * T[1]) /
+            (2.0 * T[4]);
+          coefficients[5] = (-12.0 * start_pos + 12.0 * end_pos - start_acc * T[2] +
+                             end_acc * T[2] - 6.0 * start_vel * T[1] - 6.0 * end_vel * T[1]) /
                             (2.0 * T[5]);
         }
 
@@ -501,35 +503,47 @@ bool Trajectory::interpolate_between_points(
     output.accelerations.resize(dofs, 0.0);
   }
 
+  splines_state.positions = output.positions;
+  splines_state.velocities = output.velocities;
+  splines_state.accelerations = output.accelerations;
+  splines_state.effort = output.effort;
+
   // Optionally apply velocity, acceleration, and jerk limits with Ruckig
-  if ((duration_so_far.seconds() > 0 || skip_splines) && do_ruckig_smoothing)
+  //   if ((duration_so_far.seconds() > 0 || skip_splines) && do_ruckig_smoothing)
+  if (do_ruckig_smoothing)
   {
     // If Ruckig has run previously on this trajectory, use the output as input for the next cycle
     if (have_previous_ruckig_output_)
     {
+      //       RCLCPP_WARN(rclcpp::get_logger("trajectory"), "Applying previous Ruckig input");
+      ruckig_input_state.effort[0] = 1;
+
       ruckig_input_.current_position = ruckig_output_.new_position;
       ruckig_input_.current_velocity = ruckig_output_.new_velocity;
       ruckig_input_.current_acceleration = ruckig_output_.new_acceleration;
     }
-    // else, need to initialize the robot state
+    // else, need to initialize to robot state
     else
     {
+      ruckig_input_state.effort[0] = -1;
+
       ruckig_input_.current_position = state_a.positions;
-      if (has_velocity)
+      if (!state_a.velocities.empty())
       {
         ruckig_input_.current_velocity = state_a.velocities;
       }
       else
       {
-        ruckig_input_.current_velocity = std::vector<double>(dofs, 0);
+        ruckig_input_.current_velocity = std::vector<double>(dofs, 0.0);
       }
-      if (has_accel)
+      if (!state_a.accelerations.empty())
       {
         ruckig_input_.current_acceleration = state_a.accelerations;
+        ruckig_input_.current_acceleration = std::vector<double>(dofs, 0.0);
       }
       else
       {
-        ruckig_input_.current_acceleration = std::vector<double>(dofs, 0);
+        ruckig_input_.current_acceleration = std::vector<double>(dofs, 0.0);
       }
     }
     // Target state comes from the polynomial interpolation
@@ -548,7 +562,6 @@ bool Trajectory::interpolate_between_points(
       }
     }
 
-    //     RCLCPP_INFO(rclcpp::get_logger("trajectory"), "Target acceleration %f", output.accelerations[0]);
     for (size_t i = 0; i < dofs; ++i)
     {
       // Set the target velocities to follow the joint limits
@@ -556,23 +569,29 @@ bool Trajectory::interpolate_between_points(
 
       // Set the target accelerations to follow the joint limits
       ruckig_input_.target_acceleration[i] = rcppmath::clamp(
-        output.accelerations[i],
-        (joint_limits[i].max_acceleration < 0) ? joint_limits[i].max_acceleration
-                                               : -1.0 * joint_limits[i].max_acceleration,
-        (joint_limits[i].max_acceleration > 0) ? joint_limits[i].max_acceleration
-                                               : -1.0 * joint_limits[i].max_acceleration);
+        output.accelerations[i], -1.0 * joint_limits[i].max_acceleration,
+        joint_limits[i].max_acceleration);
     }
 
-    // TODO(andyz): update only the Ruckig::delta_time member of the smoother.
-    // dofs should not update since it doesn't change with every new trajectory
-    // See https://github.com/pantor/ruckig/issues/118
-    smoother_ = std::make_unique<ruckig::Ruckig<ruckig::DynamicDOFs>>(dofs, period.seconds());
+    ruckig_input_state.positions = ruckig_input_.current_position;
+    ruckig_input_state.velocities = ruckig_input_.current_velocity;
+    ruckig_input_state.accelerations = ruckig_input_.current_acceleration;
+
+    ruckig_state.positions = ruckig_input_.target_position;
+    ruckig_state.velocities = ruckig_input_.target_velocity;
+    ruckig_state.accelerations = ruckig_input_.target_acceleration;
+    for (size_t i = 0; i < dofs; ++i)
+    {
+      ruckig_state.effort[i] = ruckig_input_.target_acceleration[i] / period.seconds();
+    }
+
     ruckig::Result result = smoother_->update(ruckig_input_, ruckig_output_);
 
     // If Ruckig was successful, update the output state
     // Else, just pass the output from the polynomial interpolation
     if (result == ruckig::Result::Working || result == ruckig::Result::Finished)
     {
+      ruckig_input_state.effort[1] = 1.1;
       have_previous_ruckig_output_ = true;
       output.positions = ruckig_output_.new_position;
       output.velocities = ruckig_output_.new_velocity;
@@ -580,13 +599,31 @@ bool Trajectory::interpolate_between_points(
     }
     else
     {
+      ruckig_input_state.effort[1] = -1.1;
       if (result == ruckig::Result::ErrorInvalidInput)
       {
         RCLCPP_WARN(rclcpp::get_logger("trajectory"), "Ruckig got invalid input");
+        for (size_t i = 0; i < dofs; ++i)
+        {
+          RCLCPP_WARN(
+            rclcpp::get_logger("trajectory"),
+            "Ruckig NOK input CURRENT pos: %.10f; vel: %.10f; acc: %.10f",
+            ruckig_input_.current_position[i], ruckig_input_.current_velocity[i],
+            ruckig_input_.current_acceleration[i]);
+          RCLCPP_WARN(
+            rclcpp::get_logger("trajectory"),
+            "Ruckig NOK input TARGET pos: %.10f; vel: %.10f; acc: %.10f",
+            ruckig_input_.target_position[i], ruckig_input_.target_velocity[i],
+            ruckig_input_.target_acceleration[i]);
+        }
       }
       RCLCPP_WARN(rclcpp::get_logger("trajectory"), "Ruckig NOK!");
       return false;
     }
+  }
+  else
+  {
+    //     RCLCPP_WARN(rclcpp::get_logger("trajectory"), "Skipping Ruckig");
   }
 
   return true;
