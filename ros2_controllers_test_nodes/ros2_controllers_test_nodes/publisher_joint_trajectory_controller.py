@@ -15,8 +15,6 @@
 # Authors: Denis Štogl, Lovro Ivanov
 #
 
-import math
-
 import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -68,8 +66,6 @@ class PublisherJointTrajectory(Node):
         self.starting_point_ok = not self.check_starting_point
 
         self.joint_state_msg_received = False
-
-
 
         # Read all positions from parameters
         self.goals = []  # List of JointTrajectoryPoint
