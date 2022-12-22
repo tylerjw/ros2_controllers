@@ -245,7 +245,7 @@ protected:
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool validate_trajectory_msg(const trajectory_msgs::msg::JointTrajectory & trajectory) const;
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
-  void add_new_trajectory_msg(
+  virtual void add_new_trajectory_msg(
     const std::shared_ptr<trajectory_msgs::msg::JointTrajectory> & traj_msg);
   JOINT_TRAJECTORY_CONTROLLER_PUBLIC
   bool validate_trajectory_point_field(
@@ -269,16 +269,16 @@ protected:
     const JointTrajectoryPoint & state_error, const JointTrajectoryPoint & splines_output,
     const JointTrajectoryPoint & ruckig_input_target, const JointTrajectoryPoint & ruckig_input);
 
-  void read_state_from_hardware(JointTrajectoryPoint & state);
+  virtual void read_state_from_hardware(JointTrajectoryPoint & state);
 
   bool read_state_from_command_interfaces(JointTrajectoryPoint & state);
+
+  void resize_joint_trajectory_point(
+    trajectory_msgs::msg::JointTrajectoryPoint & point, size_t size);
 
 private:
   bool contains_interface_type(
     const std::vector<std::string> & interface_type_list, const std::string & interface_type);
-
-  void resize_joint_trajectory_point(
-    trajectory_msgs::msg::JointTrajectoryPoint & point, size_t size);
 };
 
 }  // namespace joint_trajectory_controller

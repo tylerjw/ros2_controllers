@@ -13,17 +13,21 @@ endif()
 
 set(THIS_PACKAGE_INCLUDE_DEPENDS
     angles
+    backward_ros
     controller_interface
     control_msgs
     control_toolbox
     hardware_interface
     joint_limits
+    nav_msgs
     pluginlib
     rclcpp
     rclcpp_lifecycle
     realtime_tools
     ruckig
     trajectory_msgs
+    tf2
+    tf2_geometry_msgs
 )
 
 find_package(ament_cmake REQUIRED)
@@ -37,19 +41,32 @@ add_library(${PROJECT_NAME} SHARED
 )
 target_include_directories(${PROJECT_NAME} PRIVATE include)
 ament_target_dependencies(${PROJECT_NAME} ${THIS_PACKAGE_INCLUDE_DEPENDS})
-target_link_libraries(joint_trajectory_controller
+target_link_libraries(${PROJECT_NAME}
   ruckig::ruckig
 )
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
 target_compile_definitions(${PROJECT_NAME} PRIVATE "JOINT_TRAJECTORY_CONTROLLER_BUILDING_DLL" "_USE_MATH_DEFINES")
+
+add_library(cartesian_trajectory_generator SHARED
+  src/cartesian_trajectory_generator.cpp
+)
+target_include_directories(cartesian_trajectory_generator PRIVATE include)
+ament_target_dependencies(cartesian_trajectory_generator ${THIS_PACKAGE_INCLUDE_DEPENDS})
+target_link_libraries(cartesian_trajectory_generator
+  ${PROJECT_NAME}
+)
+# Causes the visibility macros to use dllexport rather than dllimport,
+# which is appropriate when building the dll but not consuming it.
+target_compile_definitions(${PROJECT_NAME} PRIVATE "JOINT_TRAJECTORY_CONTROLLER_BUILDING_DLL" "_USE_MATH_DEFINES")
+
 pluginlib_export_plugin_description_file(controller_interface joint_trajectory_plugin.xml)
 
 install(DIRECTORY include/
   DESTINATION include
 )
 
-install(TARGETS ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME} cartesian_trajectory_generator
   RUNTIME DESTINATION bin
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -110,5 +127,6 @@ ament_export_include_directories(
 )
 ament_export_libraries(
   ${PROJECT_NAME}
+  cartesian_trajectory_generator
 )
 ament_package()

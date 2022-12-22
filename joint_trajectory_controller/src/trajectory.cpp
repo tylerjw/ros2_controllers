@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <ostream>
 
 #include "hardware_interface/macros.hpp"
 #include "rclcpp/duration.hpp"
@@ -661,6 +662,34 @@ void Trajectory::deduce_from_derivatives(
       second_state.positions[i] =
         first_state.positions[i] +
         (first_state.velocities[i] + second_state.velocities[i]) * 0.5 * delta_t;
+    }
+  }
+  else
+  {
+    for (size_t i = 0; i < dofs; ++i)
+    {
+      if (std::isnan(second_state.positions[i]))
+      {
+        //         std::cout << "Second state of index " << i << "is Nan. First state is " << first_state.positions[i] << std::endl;
+        double first_state_velocity =
+          first_state.velocities.empty() ? 0.0 : first_state.velocities[i];
+        if (std::isnan(first_state_velocity))
+        {
+          first_state.velocities[i] = 0.0;
+          first_state_velocity = 0.0;
+        }
+        double second_state_velocity =
+          second_state.velocities.empty() ? 0.0 : second_state.velocities[i];
+        if (std::isnan(second_state_velocity))
+        {
+          second_state.velocities[i] = 0.0;
+          second_state_velocity = 0.0;
+        }
+
+        second_state.positions[i] =
+          first_state.positions[i] + (first_state_velocity + second_state_velocity) * 0.5 * delta_t;
+        //         std::cout << "After calc second state is " <<   second_state.positions[i] << std::endl;
+      }
     }
   }
 }

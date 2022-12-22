@@ -19,15 +19,21 @@
   <exec_depend>pluginlib</exec_depend>
   <exec_depend>realtime_tools</exec_depend>
 
+  <depend>backward_ros</depend>
+
   <depend>controller_interface</depend>
   <depend>control_msgs</depend>
   <depend>control_toolbox</depend>
   <depend>hardware_interface</depend>
   <depend>joint_limits</depend>
+  <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>ruckig</depend>
   <depend>trajectory_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+
 
   <test_depend>ament_cmake_gmock</test_depend>
   <test_depend>controller_manager</test_depend>
